@@ -1,10 +1,10 @@
-Auto Stabilizin Quadcopter
+# Auto Stabilizin Quadcopter
 
 A from-scratch flight controller for an auto-stabilizing quadcopter, built on the Raspberry Pi Pico 2 W (RP2350) and piloted entirely over a custom Wi-Fi UDP protocol from a PC
 
 Author: Carlos Artacho
 
-Description
+## Description
 SkyRust is a custom flight controller designed and built from the ground up. Instead of dropping in an off-the-shelf board like a Betaflight F4 or a CC3D, every layer of this project is hand-engineered: the circuit lives on an FR4 perfboard with point-to-point soldering, the firmware is written in no_std Rust using the Embassy async framework, and the radio link is replaced entirely by a custom Wi-Fi UDP protocol communicating with a PC client.ç
 
 The core features are:
@@ -15,16 +15,16 @@ DShot Digital Motor Protocol: ESC commands are sent via DShot (a fully digital, 
 Sensor Fusion: Raw gyroscope and accelerometer data from the MPU-6050 is read over I2C and filtered in software to produce clean pitch/roll/yaw orientation estimates.
 Software Failsafe: If no valid UDP packet is received within 200 ms, all motors are immediately commanded to zero throttle — preventing a flyaway in case of Wi-Fi loss.
 
-Motivation
+## Motivation
 This project combines every major topic covered during the semester — embedded Rust, async programming, digital communication protocols, sensor interfacing, and real-time control — into a single, physically flying system.
 
-System Overview
+## System Overview
 The system is split into two physical domains:
 
 Ground Station — a PC running a Rust UDP client that reads keyboard input and streams control packets to the drone.
 Airframe — the Mark4 quadcopter frame carrying the custom perfboard, the ESC, four brushless motors, and a 3S LiPo battery.
 
-Software Architecture
+## Software Architecture
 The firmware runs on a single RP2350 core using Embassy's async executor. All tasks are cooperative and non-blocking:
 
 1. udp_server_taskListens on a UDP socket
@@ -42,7 +42,7 @@ Ticker-driven task; reads setpoint vs. actual orientation; computes per-axis PID
 5. motor_mixer_task
 Combines throttle + PID corrections into four DShot duty-cycle values; drives ESC signal lines via PIO.
 
-Hardware Architecture
+## Hardware Architecture
 The custom perfboard implements three distinct functional layers:
 
 Logic layer: Raspberry Pi Pico 2 W (RP2350) — main MCU, Wi-Fi, DShot signal generation via PIO, I2C master.
