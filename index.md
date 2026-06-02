@@ -89,3 +89,6 @@ I2C signal wires routed on the underside using AWG 30 wire-wrap, kept short and 
 | LiPo | MINI560 IN+ / IN− | Also direct from battery bus |
 | MINI560 OUT+ (5V) | Pico VSYS (pin 39) | Regulated 5V to Pico |
 | MINI560 OUT− | Pico GND (pin 38) | Common ground |
+
+### Schematic
+![alt text](<Captura de pantalla.png>)
