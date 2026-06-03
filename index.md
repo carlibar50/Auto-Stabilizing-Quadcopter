@@ -97,5 +97,5 @@ I2C signal wires routed on the underside using AWG 30 wire-wrap, kept short and 
 
 | | |
 |---|---|
-| ![](raspberry.png) | ![](esc-build.png) |
-| ![](esc-build-2.png) | ![](raspberry+mpu.png) |
+| ![](raspberry.jpeg) | ![](mark4.jpeg) |
+| ![](esc.jpeg) | ![](all.jpeg) |
