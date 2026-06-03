@@ -14,6 +14,11 @@ embassy-time         = { git = "https://github.com/embassy-rs/embassy", rev = "2
 embassy-sync         = { git = "https://github.com/embassy-rs/embassy", rev = "2e7a2b6", features = ["defmt"] }
 embassy-futures      = { git = "https://github.com/embassy-rs/embassy", rev = "2e7a2b6" }
 embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy", rev = "2e7a2b6", features = ["defmt"] }
+embassy-usb          = { git = "https://github.com/embassy-rs/embassy", rev = "2e7a2b6", features = ["defmt"] }
+ 
+# HAL traits
+embedded-hal       = "1.0.0"
+embedded-hal-async = "1.0.0"
  
 # HAL del RP2350
 embassy-rp = { git = "https://github.com/embassy-rs/embassy", rev = "2e7a2b6", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp235xa"] }
@@ -42,7 +47,6 @@ embedded-io-async = "0.6"
 rand_core       = "0.6"
  
 # MPU-6050 I2C
-mpu6050 = "0.1.5"
  
 # Matemáticas no_std para PID y sensor fusion
 micromath = "2.1.0"
