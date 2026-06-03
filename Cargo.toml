@@ -3,4 +3,59 @@ name = "Auto-Stabilizing-Quadcopter"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "Auto-Stabilizing-Quadcopter"
+path = "src/main.rs"
+
 [dependencies]
+# Embassy pinado al mismo commit que el proyecto Wi-Fi que funciona
+embassy-executor     = { git = "https://github.com/embassy-rs/embassy", rev = "2e7a2b6", features = ["task-arena-size-98304", "arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
+embassy-time         = { git = "https://github.com/embassy-rs/embassy", rev = "2e7a2b6", features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-sync         = { git = "https://github.com/embassy-rs/embassy", rev = "2e7a2b6", features = ["defmt"] }
+embassy-futures      = { git = "https://github.com/embassy-rs/embassy", rev = "2e7a2b6" }
+embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy", rev = "2e7a2b6", features = ["defmt"] }
+ 
+# HAL del RP2350
+embassy-rp = { git = "https://github.com/embassy-rs/embassy", rev = "2e7a2b6", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp235xa"] }
+ 
+# Wi-Fi CYW43439
+cyw43     = { git = "https://github.com/embassy-rs/embassy", rev = "2e7a2b6", features = ["defmt", "firmware-logs"] }
+cyw43-pio = { git = "https://github.com/embassy-rs/embassy", rev = "2e7a2b6", features = ["defmt"] }
+ 
+# Stack de red (UDP para el protocolo de control)
+embassy-net = { git = "https://github.com/embassy-rs/embassy", rev = "2e7a2b6", features = ["defmt", "tcp", "udp", "dhcpv4", "medium-ethernet", "proto-ipv4"] }
+ 
+# Logging
+defmt       = "0.3"
+defmt-rtt   = "0.4"
+panic-probe = { version = "0.3", features = ["print-defmt"] }
+ 
+# Cortex-M
+cortex-m    = { version = "0.7", features = ["inline-asm"] }
+cortex-m-rt = "0.7"
+ 
+# Utilidades
+static_cell     = "2"
+portable-atomic = { version = "1.5", features = ["critical-section"] }
+heapless        = "0.8"
+embedded-io-async = "0.6"
+rand_core       = "0.6"
+ 
+# MPU-6050 I2C
+mpu6050 = "0.1.5"
+ 
+# Matemáticas no_std para PID y sensor fusion
+micromath = "2.1.0"
+ 
+[profile.dev]
+codegen-units    = 1
+debug            = 2
+debug-assertions = true
+incremental      = false
+opt-level        = 3
+overflow-checks  = true
+ 
+[profile.release]
+debug     = 2
+lto       = true
+opt-level = "z"
