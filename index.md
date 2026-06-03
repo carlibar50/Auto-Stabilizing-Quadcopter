@@ -91,4 +91,11 @@ I2C signal wires routed on the underside using AWG 30 wire-wrap, kept short and 
 | MINI560 OUT− | Pico GND (pin 38) | Common ground |
 
 ### Schematic
-![alt text](<Captura de pantalla.png>)
+![alt text](Final.png)
+
+### Photos
+
+| | |
+|---|---|
+| ![](raspberry.png) | ![](esc-build.png) |
+| ![](esc-build-2.png) | ![](raspberry+mpu.png) |
