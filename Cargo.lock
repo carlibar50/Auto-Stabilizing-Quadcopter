@@ -23,6 +23,7 @@ dependencies = [
  "embedded-hal 1.0.0",
  "embedded-hal-async",
  "embedded-io-async",
+ "fixed",
  "heapless",
  "micromath",
  "panic-probe",

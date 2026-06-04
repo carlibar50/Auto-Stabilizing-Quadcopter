@@ -1,19 +1,19 @@
 #![no_std]
 #![no_main]
 
+use cortex_m::asm::delay;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::block::ImageDef;
-use embassy_rp::i2c::{self, Config as I2cConfig, InterruptHandler as I2cInterruptHandler};
-use embassy_rp::peripherals::{I2C1, USB};
+use embassy_rp::gpio::{Level, Output};
+use embassy_rp::peripherals::USB;
 use embassy_rp::usb::{Driver, InterruptHandler as UsbInterruptHandler};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_time::{Duration, Timer};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::Builder;
-use embedded_hal_async::i2c::I2c as I2cTrait;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -21,55 +21,49 @@ use {defmt_rtt as _, panic_probe as _};
 #[used]
 pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 
-const MPU_ADDR: u8         = 0x68;
-const REG_PWR_MGMT_1: u8   = 0x6B;
-const REG_ACCEL_XOUT_H: u8 = 0x3B;
-const REG_GYRO_XOUT_H: u8  = 0x43;
-const REG_WHO_AM_I: u8     = 0x75;
-const ACCEL_SCALE: f32     = 16384.0;
-const GYRO_SCALE: f32      = 131.0;
+const T1H_NS: u32 = 2500;
+const T1L_NS: u32 = 833;
+const T0H_NS: u32 = 1250;
+const T0L_NS: u32 = 2083;
+const DSHOT_ARM: u16 = 0;
+const DSHOT_MIN_THROTTLE: u16 = 100;
 
-const CALIB_SAMPLES: usize = 200;
-
-static USB_CHANNEL: Channel<ThreadModeRawMutex, [u8; 128], 4> = Channel::new();
+static USB_CHANNEL: Channel<ThreadModeRawMutex, [u8; 64], 4> = Channel::new();
 
 bind_interrupts!(struct Irqs {
-    I2C1_IRQ    => I2cInterruptHandler<I2C1>;
     USBCTRL_IRQ => UsbInterruptHandler<USB>;
 });
 
 #[embassy_executor::task]
 async fn usb_task(driver: Driver<'static, USB>) -> ! {
     static CONFIG_DESC: StaticCell<[u8; 256]> = StaticCell::new();
-    static BOS_DESC:    StaticCell<[u8; 256]> = StaticCell::new();
-    static MSOS_DESC:   StaticCell<[u8; 256]> = StaticCell::new();
-    static CONTROL:     StaticCell<[u8; 64]>  = StaticCell::new();
-    static STATE:       StaticCell<State>      = StaticCell::new();
+    static BOS_DESC: StaticCell<[u8; 256]> = StaticCell::new();
+    static MSOS_DESC: StaticCell<[u8; 256]> = StaticCell::new();
+    static CONTROL: StaticCell<[u8; 64]> = StaticCell::new();
+    static STATE: StaticCell<State> = StaticCell::new();
 
-    let mut config      = embassy_usb::Config::new(0xc0de, 0xcafe);
+    let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
     config.manufacturer = Some("SkyRust");
-    config.product      = Some("MPU-6050 Logger");
+    config.product = Some("DShot Controller");
 
     let mut builder = Builder::new(
-        driver,
-        config,
+        driver, config,
         CONFIG_DESC.init([0; 256]),
         BOS_DESC.init([0; 256]),
         MSOS_DESC.init([0; 256]),
         CONTROL.init([0; 64]),
     );
-
-    let state     = STATE.init(State::new());
+    let state = STATE.init(State::new());
     let mut class = CdcAcmClass::new(&mut builder, state, 64);
-    let mut usb   = builder.build();
+    let mut usb = builder.build();
 
     loop {
         let usb_fut = usb.run();
-        let io_fut  = async {
+        let io_fut = async {
             class.wait_connection().await;
             loop {
                 let msg = USB_CHANNEL.receive().await;
-                let len = msg.iter().position(|&b| b == 0).unwrap_or(128);
+                let len = msg.iter().position(|&b| b == 0).unwrap_or(64);
                 let _ = class.write_packet(&msg[..len]).await;
                 let _ = class.write_packet(b"\r\n").await;
             }
@@ -78,169 +72,110 @@ async fn usb_task(driver: Driver<'static, USB>) -> ! {
     }
 }
 
-async fn mpu_write(i2c: &mut i2c::I2c<'_, I2C1, i2c::Async>, reg: u8, val: u8) {
-    I2cTrait::write(i2c, MPU_ADDR, &[reg, val]).await.unwrap();
+async fn usb_log(s: &[u8]) {
+    let mut msg = [0u8; 64];
+    let n = s.len().min(63);
+    msg[..n].copy_from_slice(&s[..n]);
+    USB_CHANNEL.send(msg).await;
 }
 
-async fn mpu_read(i2c: &mut i2c::I2c<'_, I2C1, i2c::Async>, reg: u8, buf: &mut [u8]) {
-    I2cTrait::write_read(i2c, MPU_ADDR, &[reg], buf).await.unwrap();
+fn dshot_frame(throttle: u16, telemetry: bool) -> u16 {
+    let t = if telemetry { 1u16 } else { 0u16 };
+    let packet = (throttle << 1) | t;
+    let crc = (packet ^ (packet >> 4) ^ (packet >> 8)) & 0x0F;
+    (packet << 4) | crc
 }
 
-fn i16_be(h: u8, l: u8) -> i16 {
-    ((h as i16) << 8) | l as i16
+fn delay_ns(ns: u32) {
+    let freq = embassy_rp::clocks::clk_sys_freq();
+    let cycles = (freq as u64 * ns as u64) / 1_000_000_000;
+    delay(cycles as u32);
 }
 
-async fn calibrate(i2c: &mut i2c::I2c<'_, I2C1, i2c::Async>) -> (f32, f32, f32, f32, f32, f32) {
-    let mut sum_ax = 0f32;
-    let mut sum_ay = 0f32;
-    let mut sum_az = 0f32;
-    let mut sum_gx = 0f32;
-    let mut sum_gy = 0f32;
-    let mut sum_gz = 0f32;
-
-    let mut raw = [0u8; 6];
-
-    for _ in 0..CALIB_SAMPLES {
-        mpu_read(i2c, REG_ACCEL_XOUT_H, &mut raw).await;
-        sum_ax += i16_be(raw[0], raw[1]) as f32 / ACCEL_SCALE;
-        sum_ay += i16_be(raw[2], raw[3]) as f32 / ACCEL_SCALE;
-        sum_az += i16_be(raw[4], raw[5]) as f32 / ACCEL_SCALE;
-
-        mpu_read(i2c, REG_GYRO_XOUT_H, &mut raw).await;
-        sum_gx += i16_be(raw[0], raw[1]) as f32 / GYRO_SCALE;
-        sum_gy += i16_be(raw[2], raw[3]) as f32 / GYRO_SCALE;
-        sum_gz += i16_be(raw[4], raw[5]) as f32 / GYRO_SCALE;
-
-        Timer::after(Duration::from_millis(10)).await;
+fn dshot_send_sync(m1: &mut Output<'_>, m2: &mut Output<'_>, m3: &mut Output<'_>, m4: &mut Output<'_>, frame: u16) {
+    for i in (0..16).rev() {
+        let bit = (frame >> i) & 1;
+        
+        m1.set_high();
+        m2.set_high();
+        m3.set_high();
+        m4.set_high();
+        
+        if bit == 1 {
+            delay_ns(T1H_NS);
+            m1.set_low();
+            m2.set_low();
+            m3.set_low();
+            m4.set_low();
+            delay_ns(T1L_NS);
+        } else {
+            delay_ns(T0H_NS);
+            m1.set_low();
+            m2.set_low();
+            m3.set_low();
+            m4.set_low();
+            delay_ns(T0L_NS);
+        }
     }
-
-    let n = CALIB_SAMPLES as f32;
-    let ax_bias = sum_ax / n;
-    let ay_bias = sum_ay / n;
-    let az_bias = sum_az / n - 1.0; // restar 1g de gravedad
-    let gx_bias = sum_gx / n;
-    let gy_bias = sum_gy / n;
-    let gz_bias = sum_gz / n;
-
-    (ax_bias, ay_bias, az_bias, gx_bias, gy_bias, gz_bias)
-}
-
-fn fmt_f32(val: f32, buf: &mut [u8]) -> usize {
-    let neg  = val < 0.0;
-    let abs  = if neg { -val } else { val };
-    let int  = abs as u32;
-    let frac = ((abs - int as f32) * 1000.0) as u32;
-
-    let mut tmp = [0u8; 16];
-    let mut pos = 0usize;
-
-    if neg { tmp[pos] = b'-'; pos += 1; }
-
-    if int == 0 {
-        tmp[pos] = b'0'; pos += 1;
-    } else {
-        let mut n = int;
-        let start = pos;
-        while n > 0 { tmp[pos] = b'0' + (n % 10) as u8; pos += 1; n /= 10; }
-        tmp[start..pos].reverse();
-    }
-
-    tmp[pos] = b'.';                             pos += 1;
-    tmp[pos] = b'0' + (frac / 100) as u8;       pos += 1;
-    tmp[pos] = b'0' + ((frac / 10) % 10) as u8; pos += 1;
-    tmp[pos] = b'0' + (frac % 10) as u8;        pos += 1;
-
-    let n = pos.min(buf.len());
-    buf[..n].copy_from_slice(&tmp[..n]);
-    n
 }
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
-
     spawner.spawn(usb_task(Driver::new(p.USB, Irqs))).unwrap();
-
-    let mut i2c = i2c::I2c::new_async(
-        p.I2C1,
-        p.PIN_7,  // SCL
-        p.PIN_6,  // SDA
-        Irqs,
-        I2cConfig::default(),
-    );
-
     Timer::after(Duration::from_millis(2000)).await;
 
-    let mut who = [0u8; 1];
-    mpu_read(&mut i2c, REG_WHO_AM_I, &mut who).await;
-    if who[0] != 0x68 {
-        error!("MPU-6050 not found (WHO_AM_I=0x{:02X})", who[0]);
-        loop { Timer::after(Duration::from_secs(1)).await; }
-    }
-    info!("MPU-6050 OK");
+    usb_log(b"SkyRust - 4 Motors Sync").await;
+    usb_log(b"REMOVE PROPELLERS!").await;
+    info!("Test 4 motors initialized");
 
-    // Despertar
-    mpu_write(&mut i2c, REG_PWR_MGMT_1, 0x00).await;
-    Timer::after(Duration::from_millis(100)).await;
+    let mut m1 = Output::new(p.PIN_0, Level::Low);
+    let mut m2 = Output::new(p.PIN_1, Level::Low);
+    let mut m3 = Output::new(p.PIN_2, Level::Low);
+    let mut m4 = Output::new(p.PIN_3, Level::Low);
 
-    {
-        let mut msg = [0u8; 128];
-        let s = b"=== CALIBRACION: manten la Pico inmovil 2 segundos ===";
-        msg[..s.len()].copy_from_slice(s);
-        USB_CHANNEL.send(msg).await;
-    }
-    info!("Calibrating — dont move the dron...");
-
-    let (ax_b, ay_b, az_b, gx_b, gy_b, gz_b) = calibrate(&mut i2c).await;
-
-    info!("Bias accel: X={} Y={} Z={}", ax_b, ay_b, az_b);
-    info!("Bias gyro:  X={} Y={} Z={}", gx_b, gy_b, gz_b);
-
-    {
-        let mut msg = [0u8; 128];
-        let s = b"=== Calbration complete. Reading... ===";
-        msg[..s.len()].copy_from_slice(s);
-        USB_CHANNEL.send(msg).await;
+    usb_log(b"Arming ESCs...").await;
+    info!("Arming sequence...");
+    let t_end = embassy_time::Instant::now() + Duration::from_millis(4000);
+    while embassy_time::Instant::now() < t_end {
+        let frame = dshot_frame(DSHOT_ARM, false);
+        dshot_send_sync(&mut m1, &mut m2, &mut m3, &mut m4, frame);
+        Timer::after(Duration::from_micros(50)).await;
     }
 
-    let mut raw = [0u8; 6];
-
-    loop {
-        mpu_read(&mut i2c, REG_ACCEL_XOUT_H, &mut raw).await;
-        let ax = i16_be(raw[0], raw[1]) as f32 / ACCEL_SCALE - ax_b;
-        let ay = i16_be(raw[2], raw[3]) as f32 / ACCEL_SCALE - ay_b;
-        let az = i16_be(raw[4], raw[5]) as f32 / ACCEL_SCALE - az_b;
-
-        mpu_read(&mut i2c, REG_GYRO_XOUT_H, &mut raw).await;
-        let gx = i16_be(raw[0], raw[1]) as f32 / GYRO_SCALE - gx_b;
-        let gy = i16_be(raw[2], raw[3]) as f32 / GYRO_SCALE - gy_b;
-        let gz = i16_be(raw[4], raw[5]) as f32 / GYRO_SCALE - gz_b;
-
-        // Construir línea USB
-        let mut line = [0u8; 128];
-        let mut pos  = 0usize;
-
-        macro_rules! push {
-            ($s:expr) => { for &b in $s { if pos < 127 { line[pos] = b; pos += 1; } } };
+    usb_log(b"Throttle ramp...").await;
+    info!("Ramping throttle...");
+    let mut throttle: u16 = 48;
+    let t_end = embassy_time::Instant::now() + Duration::from_millis(3000);
+    while embassy_time::Instant::now() < t_end {
+        let frame = dshot_frame(throttle, false);
+        dshot_send_sync(&mut m1, &mut m2, &mut m3, &mut m4, frame);
+        Timer::after(Duration::from_micros(50)).await;
+        if throttle < DSHOT_MIN_THROTTLE {
+            throttle += 1;
         }
-        macro_rules! push_f {
-            ($v:expr) => {{
-                let mut tmp = [0u8; 12];
-                let n = fmt_f32($v, &mut tmp);
-                push!(&tmp[..n]);
-            }};
-        }
-
-        push!(b"A[g] X="); push_f!(ax);
-        push!(b" Y=");     push_f!(ay);
-        push!(b" Z=");     push_f!(az);
-        push!(b" | G[d/s] X="); push_f!(gx);
-        push!(b" Y=");     push_f!(gy);
-        push!(b" Z=");     push_f!(gz);
-
-        USB_CHANNEL.send(line).await;
-        info!("A X={} Y={} Z={} | G X={} Y={} Z={}", ax, ay, az, gx, gy, gz);
-
-        Timer::after(Duration::from_millis(100)).await;
     }
+
+    usb_log(b"Throttle hold...").await;
+    info!("Holding throttle...");
+    let t_end = embassy_time::Instant::now() + Duration::from_millis(3000);
+    while embassy_time::Instant::now() < t_end {
+        let frame = dshot_frame(DSHOT_MIN_THROTTLE, false);
+        dshot_send_sync(&mut m1, &mut m2, &mut m3, &mut m4, frame);
+        Timer::after(Duration::from_micros(50)).await;
+    }
+
+    usb_log(b"Stopping motors").await;
+    info!("Stopping...");
+    let t_end = embassy_time::Instant::now() + Duration::from_millis(500);
+    while embassy_time::Instant::now() < t_end {
+        let frame = dshot_frame(DSHOT_ARM, false);
+        dshot_send_sync(&mut m1, &mut m2, &mut m3, &mut m4, frame);
+        Timer::after(Duration::from_micros(50)).await;
+    }
+
+    usb_log(b"Test completed.").await;
+    info!("Test completed OK");
+
+    loop { Timer::after(Duration::from_secs(60)).await; }
 }
