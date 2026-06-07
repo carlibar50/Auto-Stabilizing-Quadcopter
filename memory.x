@@ -4,8 +4,6 @@ MEMORY {
     RAM   : ORIGIN = 0x20000000, LENGTH = 512K
 }
 
-/* El RP2350 valida la imagen leyendo un "Image Definition" justo después
-   de la tabla de vectores. Aquí lo colocamos en .start_block. */
 SECTIONS {
     .start_block : ALIGN(4)
     {
@@ -18,8 +16,6 @@ SECTIONS {
 
 _stext = ORIGIN(FLASH) + 0x200;
 
-/* Secciones necesarias para la feature `binary-info` de embassy-rp:
-   picotool puede leer aqui metadata del programa. */
 SECTIONS {
     .bi_entries : ALIGN(4)
     {
