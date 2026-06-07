@@ -114,7 +114,7 @@ Layout principles applied on the perfboard:
 
 ### Schematic
 
-![Schematic](schema.jpeg)
+![Schematic](./images/schema.jpeg)
 
 ### Photos
 
