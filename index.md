@@ -1,13 +1,13 @@
-# SkyRust — Auto-Stabilizing Wi-Fi Quadcopter
+# Auto-Stabilizing Wi-Fi Quadcopter
 
 A from-scratch flight controller for an auto-stabilizing quadcopter, built on the Raspberry Pi Pico 2 W (RP2350) and piloted entirely over a custom Wi-Fi UDP protocol from a PC.
 
 **Author:** Carlos Artacho
-**Repository:** https://github.com/UPB-PMRust-Students/fils-project-2026-carlibar50
+**Repository:** https://github.com/carlibar50/Auto-Stabilizing-Quadcopter
 
 ## Description
 
-SkyRust is a custom flight controller designed and built from the ground up. Instead of dropping in an off-the-shelf board like a Betaflight F4 or a CC3D, every layer of this project is hand-engineered: the circuit lives on an FR4 perfboard with point-to-point soldering, the firmware is written in `no_std` Rust using the Embassy async framework, and the radio link is replaced entirely by a custom Wi-Fi UDP protocol communicating with a PC client.
+Custom flight controller designed and built from the ground up. Instead of dropping in an off-the-shelf board like a Betaflight F4 or a CC3D, every layer of this project is hand-engineered: the circuit lives on an FR4 perfboard with point-to-point soldering, the firmware is written in `no_std` Rust using the Embassy async framework, and the radio link is replaced entirely by a custom Wi-Fi UDP protocol communicating with a PC client.
 
 The core features are:
 
@@ -89,8 +89,6 @@ Layout principles applied on the perfboard:
 | GND | GND | 38 |
 | SDA | GP6 | 9 |
 | SCL | GP7 | 10 |
-
-> The MPU-6050 operates at 3.3V. VCC connects to the Pico's 3V3 OUT (pin 36), not to 5V.
 
 #### Mamba F45 ESC to Pico 2W (DShot)
 
@@ -191,6 +189,4 @@ During tethered PID-tuning tests at a high thrust level (THR ~ 1000), the Raspbe
 1. **BEC (MINI560) failure:** A reverse-voltage (Back-EMF) spike from the ECOII 2306 motors may have exceeded the 470uF capacitor's capacity, destroying the BEC and passing 14.8V directly to the Pico.
 2. **Physical short:** Extreme vibration of the Mark4 frame could have caused a temporary solder bridge or a wire chafing against the FR4 perfboard.
 3. **Ground loop:** Motor return current flowing back through the ESC signal cable (SH1.0) into the Pico's logic ground.
-
-This incident is documented as a key engineering lesson: high-current motor systems require galvanic isolation or robust transient protection on the logic supply rail, and a perfboard airframe needs mechanical strain relief on every signal wire before high-thrust testing.
 
